@@ -1387,22 +1387,32 @@ namespace Emby.Server.Implementations.Dto
 
             BaseItem[]? allExtras = null;
 
-            if (options.ContainsField(ItemFields.SpecialFeatureCount))
+            // Folders (UserView, CollectionFolder, etc.) are virtual containers — they never
+            // have OwnerId-linked extras on disk. Skip the DB query entirely to avoid a 46ms
+            // full BaseItems scan that always returns 0 rows for folder items.
+            if (!item.IsFolder)
             {
-                allExtras = item.GetExtras().ToArray();
-                dto.SpecialFeatureCount = allExtras.Count(i => i.ExtraType.HasValue && BaseItem.DisplayExtraTypes.Contains(i.ExtraType.Value));
-            }
+                if (options.ContainsField(ItemFields.SpecialFeatureCount))
+                {
+                    allExtras = item.GetExtras().ToArray();
+                    dto.SpecialFeatureCount = allExtras.Count(i => i.ExtraType.HasValue && BaseItem.DisplayExtraTypes.Contains(i.ExtraType.Value));
+                }
 
-            if (options.ContainsField(ItemFields.LocalTrailerCount))
+                if (options.ContainsField(ItemFields.LocalTrailerCount))
+                {
+                    if (item is IHasTrailers hasTrailers)
+                    {
+                        dto.LocalTrailerCount = hasTrailers.LocalTrailers.Count;
+                    }
+                    else
+                    {
+                        dto.LocalTrailerCount = (allExtras ?? item.GetExtras()).Count(i => i.ExtraType == ExtraType.Trailer);
+                    }
+                }
+            }
+            else if (options.ContainsField(ItemFields.LocalTrailerCount) && item is IHasTrailers hasTrailers2)
             {
-                if (item is IHasTrailers hasTrailers)
-                {
-                    dto.LocalTrailerCount = hasTrailers.LocalTrailers.Count;
-                }
-                else
-                {
-                    dto.LocalTrailerCount = (allExtras ?? item.GetExtras()).Count(i => i.ExtraType == ExtraType.Trailer);
-                }
+                dto.LocalTrailerCount = hasTrailers2.LocalTrailers.Count;
             }
 
             // Add EpisodeInfo
