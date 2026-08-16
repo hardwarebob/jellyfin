@@ -351,17 +351,27 @@ public class PeopleRepository(IDbContextFactory<JellyfinDbContext> dbProvider, I
 
         if (!filter.ItemId.IsEmpty())
         {
-            query = query.Where(e => e.BaseItems!.Any(w => w.ItemId.Equals(filter.ItemId)));
+            // IN subquery lets SQLite use IX_PeopleBaseItemMap_ItemId_ListOrder (ItemId first),
+            // returning only the relevant PeopleIds before scanning Peoples. The navigation-property
+            // ANY() form generates a correlated EXISTS that scans all 60K+ Peoples rows instead.
+            var itemId = filter.ItemId;
+            var matchingIds = context.PeopleBaseItemMap.Where(w => w.ItemId == itemId).Select(w => w.PeopleId);
+            query = query.Where(e => matchingIds.Contains(e.Id));
         }
 
         if (filter.ParentId != null)
         {
-            query = query.Where(e => e.BaseItems!.Any(w => context.AncestorIds.Any(i => i.ParentItemId == filter.ParentId && i.ItemId == w.ItemId)));
+            var parentId = filter.ParentId.Value;
+            var descendantIds = context.AncestorIds.Where(a => a.ParentItemId == parentId).Select(a => a.ItemId);
+            var matchingIds = context.PeopleBaseItemMap.Where(w => descendantIds.Contains(w.ItemId)).Select(w => w.PeopleId);
+            query = query.Where(e => matchingIds.Contains(e.Id));
         }
 
         if (!filter.AppearsInItemId.IsEmpty())
         {
-            query = query.Where(e => e.BaseItems!.Any(w => w.ItemId.Equals(filter.AppearsInItemId)));
+            var appearsInId = filter.AppearsInItemId;
+            var matchingIds = context.PeopleBaseItemMap.Where(w => w.ItemId == appearsInId).Select(w => w.PeopleId);
+            query = query.Where(e => matchingIds.Contains(e.Id));
         }
 
         var queryPersonTypes = filter.PersonTypes.Where(IsValidPersonType).ToList();
@@ -379,7 +389,10 @@ public class PeopleRepository(IDbContextFactory<JellyfinDbContext> dbProvider, I
 
         if (filter.MaxListOrder.HasValue && !filter.ItemId.IsEmpty())
         {
-            query = query.Where(e => e.BaseItems!.Any(w => w.ItemId == filter.ItemId && w.ListOrder <= filter.MaxListOrder.Value));
+            var itemId = filter.ItemId;
+            var maxOrder = filter.MaxListOrder.Value;
+            var eligibleIds = context.PeopleBaseItemMap.Where(w => w.ItemId == itemId && w.ListOrder <= maxOrder).Select(w => w.PeopleId);
+            query = query.Where(e => eligibleIds.Contains(e.Id));
         }
 
         if (!string.IsNullOrWhiteSpace(filter.NameContains))
