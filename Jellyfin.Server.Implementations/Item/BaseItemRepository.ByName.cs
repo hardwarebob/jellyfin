@@ -246,7 +246,7 @@ public sealed partial class BaseItemRepository
         }
 
         result.StartIndex = filter.StartIndex ?? 0;
-        if (filter.IncludeItemTypes.Length > 0)
+        if (filter.IncludeItemTypes.Length > 0 && filter.EnableItemCounts)
         {
             var countsByCleanName = BuildItemCountsByCleanName(context, filter, itemValueTypes);
             result.Items =

@@ -155,7 +155,8 @@ public class FilterController : BaseJellyfinApiController
             IsSports = isSports,
             IsKids = isKids,
             IsNews = isNews,
-            IsSeries = isSeries
+            IsSeries = isSeries,
+            EnableItemCounts = false
         };
 
         var streamLanguageQuery = new InternalItemsQuery(user)

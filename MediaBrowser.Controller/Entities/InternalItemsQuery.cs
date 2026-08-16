@@ -398,6 +398,8 @@ namespace MediaBrowser.Controller.Entities
 
         public bool EnableTotalRecordCount { get; set; }
 
+        public bool EnableItemCounts { get; set; } = true;
+
         public bool ForceDirect { get; set; }
 
         public Dictionary<string, string>? ExcludeProviderIds { get; set; }
