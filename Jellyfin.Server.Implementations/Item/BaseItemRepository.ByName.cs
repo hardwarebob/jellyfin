@@ -298,8 +298,10 @@ public sealed partial class BaseItemRepository
             IsPlayed = filter.IsPlayed
         };
 
-        var itemCountQuery = TranslateQuery(context.BaseItems.AsNoTracking().Where(e => e.Id != EF.Constant(PlaceholderId)), context, typeSubQuery)
-            .Where(e => e.ItemValues!.Any(f => itemValueTypes!.Contains(f.ItemValue.Type)));
+        // The EXISTS check that the item has at least one value of the requested type is redundant:
+        // the outer join in rawCounts already restricts to ItemValuesMap rows of that type, so any
+        // item without such a value simply contributes zero rows and is not counted.
+        var itemCountQuery = TranslateQuery(context.BaseItems.AsNoTracking().Where(e => e.Id != EF.Constant(PlaceholderId)), context, typeSubQuery);
 
         var seriesTypeName = _itemTypeLookup.BaseItemKindNames[BaseItemKind.Series];
         var movieTypeName = _itemTypeLookup.BaseItemKindNames[BaseItemKind.Movie];
@@ -308,15 +310,15 @@ public sealed partial class BaseItemRepository
         var musicArtistTypeName = _itemTypeLookup.BaseItemKindNames[BaseItemKind.MusicArtist];
         var audioTypeName = _itemTypeLookup.BaseItemKindNames[BaseItemKind.Audio];
         var trailerTypeName = _itemTypeLookup.BaseItemKindNames[BaseItemKind.Trailer];
-        var itemIds = itemCountQuery.Select(e => e.Id);
-
-        // Rewrite query to avoid SelectMany on navigation properties (which requires SQL APPLY, not supported on SQLite)
-        // Instead, start from ItemValueMaps and join with BaseItems.
+        // Join ItemValuesMap directly with the filtered item set (derived table) to get the Type
+        // without a second pass through all BaseItems. Joining against the full BaseItems table
+        // generates one random PK lookup per ItemValuesMap row (~3500 lookups for a 1390-movie
+        // library), whereas an INNER JOIN with the already-filtered subquery lets SQLite use a
+        // hash join against the small result set and eliminates those lookups entirely (~3ms vs ~91ms).
         var rawCounts = context.ItemValuesMap
             .Where(ivm => itemValueTypes.Contains(ivm.ItemValue.Type))
-            .Where(ivm => itemIds.Contains(ivm.ItemId))
             .Join(
-                context.BaseItems,
+                itemCountQuery.Select(e => new { e.Id, e.Type }),
                 ivm => ivm.ItemId,
                 e => e.Id,
                 (ivm, e) => new { CleanName = ivm.ItemValue.CleanValue, e.Type })

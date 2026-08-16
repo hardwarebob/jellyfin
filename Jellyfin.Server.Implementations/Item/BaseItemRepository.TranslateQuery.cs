@@ -534,8 +534,14 @@ public sealed partial class BaseItemRepository
                 // Match each version on its own progress rather than coalescing onto the primary.
                 var inProgressIds = inProgress.Select(ud => ud.ItemId);
 
-                baseQuery = baseQuery.Where(folderIsResumableFilter
-                    .Or(IsFolderFilter.Not().And(e => inProgressIds.Contains(e.Id))));
+                // _resumableFolderKinds (Series, Season) always have a null MediaType in the DB.
+                // Any non-empty MediaTypes filter requires a non-null value, so no resumable folder
+                // can pass it — skip the expensive correlated AncestorIds descendant subquery.
+                var skipFolderResumabilityCheck = filter.MediaTypes.Length > 0 && filter.IsFolder != true;
+
+                baseQuery = skipFolderResumabilityCheck
+                    ? baseQuery.Where(IsFolderFilter.Not().And(e => inProgressIds.Contains(e.Id)))
+                    : baseQuery.Where(folderIsResumableFilter.Or(IsFolderFilter.Not().And(e => inProgressIds.Contains(e.Id))));
 
                 // When several versions of the same item are in progress, keep only the most recently played one, use id as tiebreaker.
                 // Only in-progress siblings can eliminate a candidate: a version without progress has a NULL max LastPlayedDate,
