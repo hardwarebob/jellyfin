@@ -96,9 +96,15 @@ public sealed partial class BaseItemRepository
     /// <returns>The materialized items in query order.</returns>
     private IReadOnlyList<BaseItemDto> LoadItems(JellyfinDbContext context, InternalItemsQuery filter, IQueryable<BaseItemEntity> dbQuery)
     {
-        // Always use split queries: fetch IDs first (no JOINs), then load entity data in a
-        // separate query using WhereOneOrMany. This avoids cartesian explosions when items
-        // have multiple one-to-many navigations (providers, images, user data, linked children).
+        if (!filter.Limit.HasValue)
+        {
+            return ApplyNavigations(dbQuery, filter)
+                .AsEnumerable()
+                .Select(w => DeserializeBaseItem(w, filter.SkipDeserialization))
+                .OfType<BaseItemDto>()
+                .ToArray();
+        }
+
         return LoadOrderedItemsById(context, filter, dbQuery.AsNoTracking().Select(e => e.Id).ToList());
     }
 
@@ -284,30 +290,22 @@ public sealed partial class BaseItemRepository
         // Episodes added within this window are considered "recently added together"
         const double RecentAdditionWindowHours = 24.0;
 
-        // Step 1: Stream episodes newest-first, collect the first N distinct series with
-        // unplayed content. Early termination means we read O(recent episodes) not O(library).
-        // GroupBy+Max(DateCreated) would scan all 15K+ episodes even though only the newest
-        // few hundred matter for the top-N result.
-        var take = limit ?? int.MaxValue;
-        var seen = new Dictionary<string, DateTime?>(StringComparer.OrdinalIgnoreCase);
-        foreach (var ep in baseQuery
+        // Step 1: Find the top N series with recently added content, ordered by most recent addition
+        var topSeriesWithDates = baseQuery
             .Where(e => e.SeriesName != null)
-            .OrderByDescending(e => e.DateCreated)
-            .Select(e => new { e.SeriesName, e.DateCreated })
-            .AsEnumerable())
+            .GroupBy(e => e.SeriesName)
+            .Select(g => new { SeriesName = g.Key!, MaxDate = g.Max(e => e.DateCreated) })
+            .OrderByDescending(g => g.MaxDate);
+
+        if (limit.HasValue)
         {
-            if (!seen.ContainsKey(ep.SeriesName!))
-            {
-                seen[ep.SeriesName!] = ep.DateCreated;
-                if (seen.Count >= take)
-                {
-                    break;
-                }
-            }
+            topSeriesWithDates = topSeriesWithDates.Take(limit.Value).OrderByDescending(g => g.MaxDate);
         }
 
-        var topSeriesData = seen.Select(kv => new { SeriesName = kv.Key, MaxDate = kv.Value })
-            .OrderByDescending(g => g.MaxDate)
+        // Materialize series names and cutoff to avoid embedding the GroupBy+OrderBy
+        // expression tree as a subquery inside the episode query.
+        var topSeriesData = topSeriesWithDates
+            .Select(g => new { g.SeriesName, g.MaxDate })
             .ToList();
         var topSeriesNames = topSeriesData.Select(g => g.SeriesName).ToList();
 

@@ -990,11 +990,8 @@ public sealed partial class BaseItemRepository
 
         if (filter.AncestorIds.Length > 0)
         {
-            // Flip to IN subquery so SQLite uses IX_AncestorIds_ParentItemId first, then PK lookups,
-            // instead of a correlated EXISTS that scans every item in the outer query.
             var ancestorFilter = filter.AncestorIds.OneOrManyExpressionBuilder<AncestorId, Guid>(f => f.ParentItemId);
-            var matchingItemIds = context.AncestorIds.Where(ancestorFilter).Select(a => a.ItemId);
-            baseQuery = baseQuery.Where(e => matchingItemIds.Contains(e.Id));
+            baseQuery = baseQuery.Where(e => e.Parents!.AsQueryable().Any(ancestorFilter));
         }
 
         if (filter.LinkedChildAncestorIds.Length > 0)
