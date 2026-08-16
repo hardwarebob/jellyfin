@@ -84,41 +84,42 @@ public class SearchManager : ISearchManager
 
         var searchTerm = query.SearchTerm.Trim().RemoveDiacritics();
 
-        var externalTask = CollectFromProvidersAsync(_externalProviders, query, searchTerm, cancellationToken);
-        var internalTask = _internalProviders.Length > 0
-            ? CollectFromProvidersAsync(_internalProviders, query, searchTerm, cancellationToken)
-            : Task.FromResult<IReadOnlyList<SearchResult>>([]);
-
-        await Task.WhenAll(externalTask, internalTask).ConfigureAwait(false);
-
-        var externalResults = await externalTask.ConfigureAwait(false);
-
-        // Internal providers apply user-access filtering inline in their queries. External
-        // providers don't know about user permissions, so they may return IDs from hidden
-        // libraries or items the user is otherwise blocked from. Filter them here to close
-        // that gap. The Items controller's second roundtrip via folder.GetItems applies most
-        // of these again, but it does not restrict by TopParentIds when ItemIds is set.
-        if (externalResults.Count > 0 && query.UserId.HasValue && !query.UserId.Value.IsEmpty())
+        // External providers (e.g. Meilisearch) are tried first. Only when they return
+        // nothing do we fall back to the internal SQL provider. Running both in parallel
+        // and discarding the slower one wastes the internal query's wall-clock time.
+        if (_externalProviders.Length > 0)
         {
-            var user = _userManager.GetUserById(query.UserId.Value);
-            if (user is not null)
+            var externalResults = await CollectFromProvidersAsync(_externalProviders, query, searchTerm, cancellationToken)
+                .ConfigureAwait(false);
+
+            // Internal providers apply user-access filtering inline in their queries. External
+            // providers don't know about user permissions, so they may return IDs from hidden
+            // libraries or items the user is otherwise blocked from. Filter them here to close
+            // that gap. The Items controller's second roundtrip via folder.GetItems applies most
+            // of these again, but it does not restrict by TopParentIds when ItemIds is set.
+            if (externalResults.Count > 0 && query.UserId.HasValue && !query.UserId.Value.IsEmpty())
             {
-                externalResults = await FilterByUserAccessAsync(externalResults, user, query, cancellationToken).ConfigureAwait(false);
+                var user = _userManager.GetUserById(query.UserId.Value);
+                if (user is not null)
+                {
+                    externalResults = await FilterByUserAccessAsync(externalResults, user, query, cancellationToken).ConfigureAwait(false);
+                }
+            }
+
+            if (externalResults.Count > 0)
+            {
+                return externalResults;
             }
         }
 
-        if (externalResults.Count > 0)
-        {
-            return externalResults;
-        }
-
-        var internalResults = await internalTask.ConfigureAwait(false);
         if (_internalProviders.Length > 0)
         {
             _logger.LogDebug("No results from external providers, using internal provider results");
+            return await CollectFromProvidersAsync(_internalProviders, query, searchTerm, cancellationToken)
+                .ConfigureAwait(false);
         }
 
-        return internalResults;
+        return [];
     }
 
     private async Task<IReadOnlyList<SearchResult>> FilterByUserAccessAsync(
@@ -144,16 +145,17 @@ public class SearchManager : ISearchManager
 
             baseQuery = _queryHelpers.ApplyAccessFiltering(dbContext, baseQuery, accessFilter);
 
-            var allowedCount = await baseQuery.CountAsync(cancellationToken).ConfigureAwait(false);
-            if (allowedCount == candidates.Count)
-            {
-                return candidates;
-            }
-
+            // Fetch allowed IDs in a single query; the previous COUNT + SELECT pattern ran
+            // two round-trips that were equally expensive (~68ms each).
             var allowedIds = await baseQuery
                 .Select(e => e.Id)
                 .ToHashSetAsync(cancellationToken)
                 .ConfigureAwait(false);
+
+            if (allowedIds.Count == candidates.Count)
+            {
+                return candidates;
+            }
 
             var filtered = candidates.Where(c => allowedIds.Contains(c.ItemId)).ToList();
             if (filtered.Count < candidates.Count)
