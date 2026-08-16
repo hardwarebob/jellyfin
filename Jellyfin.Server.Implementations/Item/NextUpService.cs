@@ -46,27 +46,57 @@ public class NextUpService : INextUpService
 
         using var context = _dbProvider.CreateDbContext();
 
-        var query = context.BaseItems
+        var userId = filter.User.Id;
+        var episodeType = _itemTypeLookup.BaseItemKindNames[BaseItemKind.Episode];
+
+        // Step 1: materialise the user's watch history filtered to the cutoff window.
+        // IX_UserData_UserId_ItemId_LastPlayedDate is a covering index, so this is a
+        // tight range scan on a small result (~recently-watched items only).
+        // Doing this as a separate round-trip prevents SQLite from flattening the join
+        // and reverting to a full 15k-episode scan of BaseItems.
+        var watchedData = context.UserData
             .AsNoTracking()
-            .Where(i => filter.TopParentIds.Contains(i.TopParentId!.Value))
-            .Where(i => i.Type == _itemTypeLookup.BaseItemKindNames[BaseItemKind.Episode])
-            .Join(
-                context.UserData.AsNoTracking().Where(e => e.ItemId != EF.Constant(BaseItemRepository.PlaceholderId)),
-                i => new { UserId = filter.User.Id, ItemId = i.Id },
-                u => new { u.UserId, u.ItemId },
-                (entity, data) => new { Item = entity, UserData = data })
-            .GroupBy(g => g.Item.SeriesPresentationUniqueKey)
-            .Select(g => new { g.Key, LastPlayedDate = g.Max(u => u.UserData.LastPlayedDate) })
-            .Where(g => g.Key != null && g.LastPlayedDate != null && g.LastPlayedDate >= dateCutoff)
-            .OrderByDescending(g => g.LastPlayedDate)
-            .Select(g => g.Key!);
+            .Where(u => u.UserId == userId
+                     && u.ItemId != EF.Constant(BaseItemRepository.PlaceholderId)
+                     && u.LastPlayedDate >= dateCutoff)
+            .Select(u => new { u.ItemId, u.LastPlayedDate })
+            .ToList();
+
+        if (watchedData.Count == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        var watchedIds = watchedData.Select(w => w.ItemId).ToList();
+        var lastPlayedByItem = watchedData.ToDictionary(w => w.ItemId, w => w.LastPlayedDate);
+
+        // Step 2: look up only those specific episodes in BaseItems (primary-key IN lookup).
+        var episodeSeries = context.BaseItems
+            .AsNoTracking()
+            .Where(b => watchedIds.Contains(b.Id)
+                     && b.Type == episodeType
+                     && filter.TopParentIds.Contains(b.TopParentId!.Value)
+                     && b.SeriesPresentationUniqueKey != null)
+            .Select(b => new { b.Id, b.SeriesPresentationUniqueKey })
+            .ToList();
+
+        // Step 3: group and order in memory — result set is small at this point.
+        var grouped = episodeSeries
+            .GroupBy(e => e.SeriesPresentationUniqueKey!)
+            .Select(g => new
+            {
+                Key = g.Key,
+                LastPlayed = g.Max(e => lastPlayedByItem.GetValueOrDefault(e.Id))
+            })
+            .OrderByDescending(g => g.LastPlayed)
+            .Select(g => g.Key);
 
         if (filter.Limit.HasValue)
         {
-            query = query.Take(filter.Limit.Value);
+            grouped = grouped.Take(filter.Limit.Value);
         }
 
-        return query.ToArray();
+        return grouped.ToArray();
     }
 
     /// <inheritdoc />
