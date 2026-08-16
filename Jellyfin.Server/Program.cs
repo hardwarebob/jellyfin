@@ -9,6 +9,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using CommandLine;
 using Emby.Server.Implementations;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using Emby.Server.Implementations.Configuration;
 using Emby.Server.Implementations.Serialization;
 using Jellyfin.Database.Implementations;
@@ -183,6 +185,29 @@ namespace Jellyfin.Server
                     .ConfigureServices(e => e
                         .RegisterStartupLogger()
                         .AddSingleton<IServiceCollection>(e))
+                    .ConfigureServices(services =>
+                    {
+                        // Enable OTel tracing when an OTLP endpoint is configured.
+                        // Set OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 to activate.
+                        var otlpEndpoint = Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT");
+                        if (!string.IsNullOrEmpty(otlpEndpoint))
+                        {
+                            services.AddOpenTelemetry()
+                                .ConfigureResource(r => r.AddService(
+                                    serviceName: "jellyfin",
+                                    serviceVersion: Assembly.GetEntryAssembly()!.GetName().Version!.ToString(3)))
+                                .WithTracing(tracing => tracing
+                                    .AddAspNetCoreInstrumentation(o =>
+                                    {
+                                        o.RecordException = true;
+                                        o.Filter = ctx =>
+                                            !ctx.Request.Path.StartsWithSegments("/health", StringComparison.OrdinalIgnoreCase) &&
+                                            !ctx.Request.Path.StartsWithSegments("/metrics", StringComparison.OrdinalIgnoreCase);
+                                    })
+                                    .AddEntityFrameworkCoreInstrumentation()
+                                    .AddOtlpExporter(o => o.Endpoint = new Uri(otlpEndpoint)));
+                        }
+                    })
                     .Build();
 
                 /*

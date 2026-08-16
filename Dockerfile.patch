@@ -1,0 +1,34 @@
+FROM docker.io/jellyfin/jellyfin:preview AS base
+
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+COPY . .
+# Build the full server so OTel packages are included in the output alongside
+# the patched implementation DLLs. jellyfin.dll is replaced too because we
+# changed Program.cs to register OpenTelemetry.
+RUN dotnet publish Jellyfin.Server/Jellyfin.Server.csproj \
+    -c Release \
+    -o /out \
+    --no-self-contained \
+    -p:DebugType=none \
+    -p:DebugSymbols=false
+# Merge OTel entries into the base image's deps.json. The base uses a
+# self-contained target (.NETCoreApp,Version=v10.0/linux-x64); our framework-
+# dependent build uses a different key. We copy just the OTel library/target
+# entries across so the native host can resolve the DLLs from /jellyfin/.
+COPY --from=base /jellyfin/jellyfin.deps.json /base-deps.json
+COPY merge_deps.py /merge_deps.py
+RUN apt-get update -qq && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/* && python3 /merge_deps.py
+
+FROM base
+# Replace Jellyfin's own managed DLLs (including entry point for OTel wiring),
+# leave .NET runtime, native .so files, runtimeconfig.json, and jellyfin-web
+# untouched from upstream.
+COPY --from=build /out/jellyfin.dll /jellyfin/
+# Patched deps.json: base content + OTel package entries merged in
+COPY --from=build /out/jellyfin.merged.deps.json /jellyfin/jellyfin.deps.json
+COPY --from=build /out/Jellyfin.*.dll /jellyfin/
+COPY --from=build /out/Emby.*.dll /jellyfin/
+COPY --from=build /out/MediaBrowser.*.dll /jellyfin/
+# OTel packages (gRPC transport is part of the .NET runtime, no extra DLLs needed)
+COPY --from=build /out/OpenTelemetry*.dll /jellyfin/
