@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Data;
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations;
 using Jellyfin.Database.Implementations.Entities;
@@ -100,7 +101,9 @@ public class SearchManager : ISearchManager
             if (externalResults.Count > 0 && query.UserId.HasValue && !query.UserId.Value.IsEmpty())
             {
                 var user = _userManager.GetUserById(query.UserId.Value);
-                if (user is not null)
+                // Users without any content restrictions (all folders enabled, no parental controls,
+                // no blocked tags) can access every item, so the DB round-trip is a no-op.
+                if (user is not null && user.HasContentRestrictions())
                 {
                     externalResults = await FilterByUserAccessAsync(externalResults, user, query, cancellationToken).ConfigureAwait(false);
                 }
