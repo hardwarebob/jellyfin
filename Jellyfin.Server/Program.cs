@@ -205,6 +205,7 @@ namespace Jellyfin.Server
                                             !ctx.Request.Path.StartsWithSegments("/metrics", StringComparison.OrdinalIgnoreCase);
                                     })
                                     .AddEntityFrameworkCoreInstrumentation()
+                                    .AddSource("Jellyfin.Library")
                                     .AddOtlpExporter(o => o.Endpoint = new Uri(otlpEndpoint)));
                         }
                     })

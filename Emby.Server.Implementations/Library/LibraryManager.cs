@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -1673,6 +1674,9 @@ namespace Emby.Server.Implementations.Library
 
         public IReadOnlyList<BaseItem> GetItemList(InternalItemsQuery query, bool allowExternalContent)
         {
+            using var activity = JellyfinActivity.Library.StartActivity("LibraryManager.GetItemList");
+            TagQueryOnActivity(activity, query);
+
             if (query.Recursive && !query.ParentId.IsEmpty())
             {
                 var parent = GetItemById(query.ParentId);
@@ -1687,6 +1691,8 @@ namespace Emby.Server.Implementations.Library
                 AddUserToQuery(query, query.User, allowExternalContent);
             }
 
+            activity?.SetTag("query.ancestor_ids.count", query.AncestorIds.Length);
+            activity?.SetTag("query.top_parent_ids.count", query.TopParentIds.Length);
             return _itemRepository.GetItemList(query);
         }
 
@@ -1758,6 +1764,10 @@ namespace Emby.Server.Implementations.Library
 
         public IReadOnlyList<BaseItem> GetItemList(InternalItemsQuery query, List<BaseItem> parents)
         {
+            using var activity = JellyfinActivity.Library.StartActivity("LibraryManager.GetItemList");
+            TagQueryOnActivity(activity, query);
+            activity?.SetTag("query.parents", string.Join(',', parents.Select(p => p.GetType().Name)));
+
             SetTopParentIdsOrAncestors(query, parents);
 
             if (query.AncestorIds.Length == 0 && query.TopParentIds.Length == 0)
@@ -1768,6 +1778,8 @@ namespace Emby.Server.Implementations.Library
                 }
             }
 
+            activity?.SetTag("query.ancestor_ids.count", query.AncestorIds.Length);
+            activity?.SetTag("query.top_parent_ids.count", query.TopParentIds.Length);
             return _itemRepository.GetItemList(query);
         }
 
@@ -1937,6 +1949,9 @@ namespace Emby.Server.Implementations.Library
 
         public QueryResult<BaseItem> GetItemsResult(InternalItemsQuery query)
         {
+            using var activity = JellyfinActivity.Library.StartActivity("LibraryManager.GetItemsResult");
+            TagQueryOnActivity(activity, query);
+
             if (query.Recursive && !query.ParentId.IsEmpty())
             {
                 var parent = GetItemById(query.ParentId);
@@ -1951,6 +1966,9 @@ namespace Emby.Server.Implementations.Library
                 AddUserToQuery(query, query.User);
             }
 
+            activity?.SetTag("query.ancestor_ids.count", query.AncestorIds.Length);
+            activity?.SetTag("query.top_parent_ids.count", query.TopParentIds.Length);
+
             if (query.EnableTotalRecordCount)
             {
                 return _itemRepository.GetItems(query);
@@ -1960,6 +1978,26 @@ namespace Emby.Server.Implementations.Library
                 query.StartIndex,
                 null,
                 _itemRepository.GetItemList(query));
+        }
+
+        private static void TagQueryOnActivity(Activity? activity, InternalItemsQuery query)
+        {
+            if (activity is null)
+            {
+                return;
+            }
+
+            if (!query.ParentId.IsEmpty())
+            {
+                activity.SetTag("query.parent_id", query.ParentId.ToString());
+            }
+
+            if (query.IncludeItemTypes.Length > 0)
+            {
+                activity.SetTag("query.types", string.Join(',', query.IncludeItemTypes));
+            }
+
+            activity.SetTag("query.recursive", query.Recursive);
         }
 
         private void SetTopParentIdsOrAncestors(InternalItemsQuery query, IReadOnlyCollection<BaseItem> parents)
