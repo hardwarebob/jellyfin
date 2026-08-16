@@ -115,11 +115,11 @@ public sealed partial class BaseItemRepository
         }
         else
         {
-            // Distinct() on a full entity forces EF Core to emit SELECT DISTINCT over all 70+ columns,
-            // causing SQLite to materialize and deduplicate the entire table before any outer filter runs.
-            // Use the same ID-only subquery pattern as the grouping branches above.
-            var distinctIds = dbQuery.Select(e => e.Id).Distinct();
-            dbQuery = context.BaseItems.AsNoTracking().Where(e => distinctIds.Contains(e.Id));
+            // No grouping requested. PrepareItemQuery starts from context.BaseItems (no JOINs)
+            // and TranslateQuery filters with correlated subqueries, so dbQuery already yields
+            // at most one row per item (PK is unique). Skip the subquery-wrapping step — it
+            // adds an extra FROM BaseItems WHERE Id IN (SELECT DISTINCT Id FROM BaseItems)
+            // round-trip with no correctness benefit, only overhead.
         }
 
         if (filter.CollapseBoxSetItems == true)

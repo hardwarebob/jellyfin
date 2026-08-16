@@ -530,36 +530,55 @@ public sealed partial class BaseItemRepository
 
             if (isResumable)
             {
-                // Resume queries surface the version that was actually played, which may be an alternate.
-                // Match each version on its own progress rather than coalescing onto the primary.
-                var inProgressIds = inProgress.Select(ud => ud.ItemId);
-
                 // _resumableFolderKinds (Series, Season) always have a null MediaType in the DB.
                 // Any non-empty MediaTypes filter requires a non-null value, so no resumable folder
                 // can pass it — skip the expensive correlated AncestorIds descendant subquery.
                 var skipFolderResumabilityCheck = filter.MediaTypes.Length > 0 && filter.IsFolder != true;
 
-                baseQuery = skipFolderResumabilityCheck
-                    ? baseQuery.Where(IsFolderFilter.Not().And(e => inProgressIds.Contains(e.Id)))
-                    : baseQuery.Where(folderIsResumableFilter.Or(IsFolderFilter.Not().And(e => inProgressIds.Contains(e.Id))));
+                // Version dedup: keep only the most-recently-played copy when multiple
+                // versions of the same item are simultaneously in progress.
+                // Skip entirely when the library has no alternate-version items at all —
+                // IX_BaseItems_PrimaryVersionId makes this check a single index scan that
+                // returns immediately for libraries without alternate versions (common case).
+                var hasAlternateVersions = context.BaseItems.Any(b => b.PrimaryVersionId != null);
 
-                // When several versions of the same item are in progress, keep only the most recently played one, use id as tiebreaker.
-                // Only in-progress siblings can eliminate a candidate: a version without progress has a NULL max LastPlayedDate,
-                // which is never greater and never ties. Restricting the sibling scan to the in-progress set keeps this bounded by
-                // the user's Continue Watching count instead of forcing a full BaseItems scan (COALESCE keys are non-indexable) per row.
-                // Items in no version group at all have no sibling that could eliminate them, so short-circuit the scan for those.
-                baseQuery = baseQuery.Where(e => e.IsFolder
-                    || (e.PrimaryVersionId == null && !context.BaseItems.Any(a => a.PrimaryVersionId == e.Id))
-                    || !context.BaseItems
-                        .Where(s => s.Id != e.Id
-                            && inProgressIds.Contains(s.Id)
-                            && (s.PrimaryVersionId ?? s.Id) == (e.PrimaryVersionId ?? e.Id))
-                        .Any(s =>
-                            inProgress.Where(su => su.ItemId == s.Id).Max(su => su.LastPlayedDate)
-                                > inProgress.Where(eu => eu.ItemId == e.Id).Max(eu => eu.LastPlayedDate)
-                            || (inProgress.Where(su => su.ItemId == s.Id).Max(su => su.LastPlayedDate)
-                                    == inProgress.Where(eu => eu.ItemId == e.Id).Max(eu => eu.LastPlayedDate)
-                                && s.Id.CompareTo(e.Id) < 0)));
+                if (skipFolderResumabilityCheck && !hasAlternateVersions)
+                {
+                    // Fast path: no folder-resumability subquery, no version dedup.
+                    // Keep inProgress as IQueryable so EF Core emits a single correlated
+                    // subquery (SELECT ItemId FROM UserData WHERE ...) resolved by
+                    // IX_UserData_UserId_ItemId_LastPlayedDate — avoids binding one
+                    // parameter per in-progress item.
+                    var inProgressIds = inProgress.Select(ud => ud.ItemId);
+                    baseQuery = baseQuery.Where(IsFolderFilter.Not().And(e => inProgressIds.Contains(e.Id)));
+                }
+                else
+                {
+                    // Materialise in-progress items when the folderIsResumableFilter or version
+                    // dedup is needed — avoids repeated nested AncestorIds/UserData subquery
+                    // evaluation per candidate row.
+                    var inProgressIdArray = inProgress.Select(ud => ud.ItemId).ToArray();
+
+                    baseQuery = skipFolderResumabilityCheck
+                        ? baseQuery.Where(IsFolderFilter.Not().And(e => inProgressIdArray.Contains(e.Id)))
+                        : baseQuery.Where(folderIsResumableFilter.Or(IsFolderFilter.Not().And(e => inProgressIdArray.Contains(e.Id))));
+
+                    if (hasAlternateVersions)
+                    {
+                        baseQuery = baseQuery.Where(e => e.IsFolder
+                            || (e.PrimaryVersionId == null && !context.BaseItems.Any(a => a.PrimaryVersionId == e.Id))
+                            || !context.BaseItems
+                                .Where(s => s.Id != e.Id
+                                    && inProgressIdArray.Contains(s.Id)
+                                    && (s.PrimaryVersionId ?? s.Id) == (e.PrimaryVersionId ?? e.Id))
+                                .Any(s =>
+                                    inProgress.Where(su => su.ItemId == s.Id).Max(su => su.LastPlayedDate)
+                                        > inProgress.Where(eu => eu.ItemId == e.Id).Max(eu => eu.LastPlayedDate)
+                                    || (inProgress.Where(su => su.ItemId == s.Id).Max(su => su.LastPlayedDate)
+                                            == inProgress.Where(eu => eu.ItemId == e.Id).Max(eu => eu.LastPlayedDate)
+                                        && s.Id.CompareTo(e.Id) < 0)));
+                    }
+                }
             }
             else
             {
