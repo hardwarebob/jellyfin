@@ -19,16 +19,16 @@ namespace Jellyfin.PerfTests.Integration.Scenarios;
 /// describes as taking 32-38s on a large real library with no automated test to catch a
 /// regression before or after a fix.
 ///
-/// CURRENTLY GATING:FALSE (see SearchScenario's doc comment and perf/README.md "Known follow-up
-/// work"): the same root cause — direct-seeded episodes have no real library/CollectionFolder
-/// registration, and Resume's own traversal needs one, same as Recursive search does. Confirmed
-/// via SearchScenario's byIds diagnostic that direct-seeded items are otherwise fully queryable.
+/// Seeded episodes are registered under a real CollectionFolder (<see
+/// cref="SeededHostFixture.EnsureLibraryAsync"/>) via <c>TopParentId</c>, same as
+/// <see cref="SearchScenario"/> — see that method's doc comment for why this is required.
 /// </summary>
 public static class ResumableItemsScenario
 {
     public static async Task<GateResult> Run(SeededHostFixture host)
     {
-        var episodes = SeededGenerator.BuildEpisodes(500, out _);
+        var libraryId = await host.EnsureLibraryAsync().ConfigureAwait(false);
+        var episodes = SeededGenerator.BuildEpisodes(500, libraryId);
         var inProgressIds = episodes.Take(10).Select(e => e.Id).ToList();
 
         await host.SeedAsync(async ctx =>
@@ -70,9 +70,7 @@ public static class ResumableItemsScenario
             Description = "GET /Users/{userId}/Items/Resume returns exactly the seeded in-progress items, end to end through the real endpoint",
             Kind = ResultKind.OperationCount,
             Status = pass ? GateStatus.Pass : GateStatus.Fail,
-            // Not gating yet — see this class's doc comment (same missing-library-registration
-            // root cause as SearchScenario, confirmed not a real regression).
-            Gating = false,
+            Gating = true,
             Metrics = new Dictionary<string, object?>
             {
                 ["seededInProgressCount"] = inProgressIds.Count,

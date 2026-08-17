@@ -14,29 +14,38 @@ namespace Jellyfin.PerfTests.Integration.SeedData;
 public static class SeededGenerator
 {
     private const int DefaultSeed = 424242;
+    private const int SeriesCount = 20;
 
-    public static IReadOnlyList<BaseItemEntity> BuildEpisodes(int count, out IReadOnlyList<Guid> seriesTopParentIds)
+    /// <summary>
+    /// <paramref name="libraryId"/> is the seeded <c>CollectionFolder</c>'s item id (see
+    /// <see cref="SeededHostFixture.EnsureLibraryAsync"/>) — <c>TopParentId</c> is the physical
+    /// library root every item under it shares, not a per-series grouping key, per this
+    /// session's trace of <c>LibraryManager.AddUserToQuery</c>/<c>ApplyTopParentFiltering</c>.
+    /// Series grouping for cardinality purposes still comes from <c>SeriesPresentationUniqueKey</c>.
+    /// </summary>
+    public static IReadOnlyList<BaseItemEntity> BuildEpisodes(int count, Guid libraryId)
     {
         var random = new Random(DefaultSeed);
         var items = new List<BaseItemEntity>(count);
-        var topParentIds = new List<Guid>();
-        for (var i = 0; i < 20; i++)
+        var seriesKeys = new List<Guid>();
+        for (var i = 0; i < SeriesCount; i++)
         {
-            topParentIds.Add(Guid.NewGuid());
+            seriesKeys.Add(Guid.NewGuid());
         }
 
         for (var i = 0; i < count; i++)
         {
-            var seriesIndex = i % topParentIds.Count;
+            var seriesIndex = i % seriesKeys.Count;
             items.Add(new BaseItemEntity
             {
                 Id = Guid.NewGuid(),
                 Type = "MediaBrowser.Controller.Entities.TV.Episode",
                 Name = $"Episode {i}",
                 CleanName = $"episode {i}",
-                TopParentId = topParentIds[seriesIndex],
+                ParentId = libraryId,
+                TopParentId = libraryId,
                 SeriesName = $"Series {seriesIndex}",
-                SeriesPresentationUniqueKey = topParentIds[seriesIndex].ToString("N"),
+                SeriesPresentationUniqueKey = seriesKeys[seriesIndex].ToString("N"),
                 MediaType = "Video",
                 IsVirtualItem = false,
                 IsFolder = false,
@@ -44,7 +53,6 @@ public static class SeededGenerator
             });
         }
 
-        seriesTopParentIds = topParentIds;
         return items;
     }
 }

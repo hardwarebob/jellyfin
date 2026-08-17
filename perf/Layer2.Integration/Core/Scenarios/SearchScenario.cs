@@ -4,7 +4,6 @@ using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Threading.Tasks;
-using Jellyfin.Database.Implementations;
 using Jellyfin.Extensions.Json;
 using Jellyfin.PerfTests.Common;
 using Jellyfin.PerfTests.Integration.SeedData;
@@ -19,22 +18,17 @@ namespace Jellyfin.PerfTests.Integration.Scenarios;
 /// session to be completely disconnected from the FTS5 work, so this is the endpoint an FTS5
 /// regression would actually be invisible to at the Layer 1 (in-process) level.
 ///
-/// CURRENTLY GATING:FALSE-CANDIDATE (see perf/README.md "Known follow-up work"): direct-seeded
-/// items (SeedAsync, no real CollectionFolder/library registration) are fully queryable and
-/// correctly deserialized by direct id (confirmed: GET /Items?ids={id} finds them —
-/// byIdsTotalRecordCount in this gate's own Details), but GET /Items?searchTerm=...&amp;Recursive=true
-/// finds nothing regardless of search term, because Recursive traversal starts from registered
-/// library/user-view roots — an orphan item with no real folder ancestry is invisible to it by
-/// design, not because of a search regression. This scenario needs a minimal seeded
-/// CollectionFolder + library registration to test the actual search *matching* logic instead
-/// of (accidentally) testing library-root traversal. Diagnosed, not blocking — tracked as
-/// follow-up, not left as an unexplained failure.
+/// Seeded items are registered under a real, physically-resolved library folder (<see
+/// cref="SeededHostFixture.EnsureLibraryAsync"/>) via <c>TopParentId</c> so Recursive=true
+/// traversal can actually find them — see that method's doc comment for why a raw DB insert
+/// alone can never satisfy this.
 /// </summary>
 public static class SearchScenario
 {
     public static async Task<GateResult> Run(SeededHostFixture host)
     {
-        var handPicked = HandPickedItems.Build();
+        var libraryId = await host.EnsureLibraryAsync().ConfigureAwait(false);
+        var handPicked = HandPickedItems.Build(libraryId);
         await host.SeedAsync(async ctx =>
         {
             ctx.BaseItems.AddRange(handPicked);
@@ -73,10 +67,7 @@ public static class SearchScenario
             Description = "GET /Items?searchTerm= finds multi-language titles (CJK substring, diacritic-insensitive) end to end through the real endpoint",
             Kind = ResultKind.OperationCount,
             Status = pass ? GateStatus.Pass : GateStatus.Fail,
-            // Not gating yet: confirmed (byIdsTotalRecordCount below) this fails due to seeded
-            // items having no library/root registration for Recursive traversal to find them,
-            // not a search-matching regression — see this class's doc comment.
-            Gating = false,
+            Gating = true,
             Metrics = new Dictionary<string, object?>
             {
                 ["neZhaFound"] = neZhaFound,

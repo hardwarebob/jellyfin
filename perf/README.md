@@ -34,11 +34,13 @@ host-independent by construction instead:
   `Core/PerfDbContextFactory.cs` for why that distinction matters.
 - **Layer 2 — integration** (`Layer2.Integration/`, built). Boots a real, fully-migrated host by
   reusing `JellyfinApplicationFactory`/`AuthHelper` from `tests/Jellyfin.Server.Integration.Tests`
-  directly, seeds deterministic data, and drives real HTTP endpoints. Run via `dotnet test` from
+  directly, registers a real (physically-resolved, near-empty) library via the actual
+  `/Library/VirtualFolders` API so seeded data is visible to `Recursive=true` traversal (see
+  `Core/SeededHostFixture.cs`'s `EnsureLibraryAsync` doc comment), seeds deterministic data, and
+  drives real HTTP endpoints end to end. Both scenarios are gating. Run via `dotnet test` from
   `Layer2.Integration/` specifically (not `dotnet run`, and not from elsewhere — see
   `Core/SeededHostFixture.cs`'s comment on `WebApplicationFactory<Startup>`'s content-root
-  auto-detection, which only resolves correctly launched that way). Currently both scenarios'
-  `Gating` is `false` — see "Known follow-up work".
+  auto-detection, which only resolves correctly launched that way).
 - **Layer 3 — e2e** (not yet built). Playwright against real running containers (baseline vs
   candidate, same host), formalizing the mechanics already proven in
   `/applications/deploy/jellyfin-perf/run.js`.
@@ -93,18 +95,23 @@ container instead.
   this first slice.
 
 **Layer 2:**
-- Both scenarios (`search-endpoint-multilanguage`, `resume-endpoint-returns-in-progress-only`)
-  are `gating: false`, with a confirmed (not speculative) diagnosis: `SeededHostFixture.SeedAsync`
-  writes `BaseItemEntity`/`UserData` rows directly with no real `CollectionFolder`/library
-  registration. Those items are fully queryable and correctly deserialized by direct id —
-  `SearchScenario`'s own `byIdsTotalRecordCount` detail confirms `GET /Items?ids={id}` finds them
-  — but `Recursive=true` search and `/Items/Resume` both traverse from registered library/user-view
-  roots, so an item with no real folder ancestry is invisible to them by design. Needs a minimal
-  seeded `CollectionFolder` + library registration to test actual search/resume *matching* logic
-  instead of accidentally testing library-root traversal. Tracked, not mysterious.
+- `efCommandCount` in both scenarios' metrics reads `0` even though real DB commands definitely
+  execute (results are correct, non-empty). `EfCommandCounter` subscribes to
+  `DiagnosticListener.AllListeners` for the `Microsoft.EntityFrameworkCore` source — this should
+  replay the already-active listener at subscribe time, but evidently doesn't reliably fire here.
+  Informational metric only (kind `operationcount`'s `efCommandCount` isn't part of pass/fail),
+  not blocking, but the counter itself needs debugging before its numbers can be trusted.
 - `WebApplicationFactory<Startup>`'s content-root auto-detection failure (worked around via
   `WithWebHostBuilder(builder => builder.UseContentRoot(...))` in `SeededHostFixture.cs`) was not
   root-caused to a specific mechanism — several plausible fixes (matching
   `Jellyfin.Server.Integration.Tests.csproj`'s exact reference shape, `Environment.CurrentDirectory`)
   had no effect at all. The `WithWebHostBuilder` workaround is confirmed working (migrations do
   run — 7s host boot, not a fast no-op) but is a workaround, not an understood root cause.
+- Getting seeded items visible to `Recursive=true` traversal turned out to require two
+  non-obvious, empirically-confirmed steps beyond just creating a `CollectionFolder` row (see
+  `EnsureLibraryAsync`'s doc comment for the full trace): the library needs a real `paths` entry
+  containing at least one filesystem entry (a completely empty directory doesn't resolve to a
+  physical Folder item via `LibraryManager.FindByPath`), and seeded items' `TopParentId` must be
+  that resolved *physical folder's* id — a distinct item from the `CollectionFolder`'s own id,
+  which is what the `/Library/VirtualFolders` API returns. Both scenarios are gating now that this
+  is wired up correctly.
