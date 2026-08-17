@@ -41,9 +41,12 @@ host-independent by construction instead:
   `Layer2.Integration/` specifically (not `dotnet run`, and not from elsewhere — see
   `Core/SeededHostFixture.cs`'s comment on `WebApplicationFactory<Startup>`'s content-root
   auto-detection, which only resolves correctly launched that way).
-- **Layer 3 — e2e** (not yet built). Playwright against real running containers (baseline vs
-  candidate, same host), formalizing the mechanics already proven in
-  `/applications/deploy/jellyfin-perf/run.js`.
+- **Layer 3 — e2e** (`Layer3.E2E/`, built). Playwright against two real running containers
+  (baseline vs candidate, same host, same run), formalizing the mechanics already proven in
+  `/applications/deploy/jellyfin-perf/run.js` but with no hardcoded server id/session tokens/
+  `localhost:8096` target — each run builds fresh, throwaway containers and completes the setup
+  wizard itself. See `Layer3.E2E/run-layer3.sh`'s header for usage; it is **manual/local only**,
+  not wired into `run-perf.sh` (see "Usage" below and "Known follow-up work").
 
 ## Usage
 
@@ -64,6 +67,22 @@ perf/run-perf.sh diff --baseline upstream/master --candidate HEAD --fail-on-regr
 No local `dotnet` SDK? Set `PERF_DOTNET_IMAGE=mcr.microsoft.com/dotnet/sdk:10.0` (and optionally
 `PERF_CONTAINER_RUNTIME=docker`, default `podman`) and the script runs `dotnet` inside a
 container instead.
+
+Layer 3 (separate from the above — see "Layers"):
+
+```sh
+cd perf/Layer3.E2E && npm install && npx playwright install chromium
+
+./run-layer3.sh --baseline upstream/master --candidate ux-performance \
+  --out ../results/layer3-e2e.json
+```
+
+Builds two real, jellyfin-web-included containers (overlaying this repo's build onto
+`docker.io/jellyfin/jellyfin:preview` — see `Layer3.E2E/Dockerfile`), seeds each with the same
+tiny synthetic movies (`generate-fixtures.sh`, run automatically) via the real API, measures real
+page loads with Playwright under a pinned CPU throttle, and tears everything down (containers,
+images, worktrees) on exit. Needs `podman` (or `docker`, via `PERF_CONTAINER_RUNTIME=docker`) and
+real disk/network headroom — two full server images, not a quick in-process run like Layers 1-2.
 
 ## Adding a gate
 
@@ -115,3 +134,20 @@ container instead.
   that resolved *physical folder's* id — a distinct item from the `CollectionFolder`'s own id,
   which is what the `/Library/VirtualFolders` API returns. Both scenarios are gating now that this
   is wired up correctly.
+
+**Layer 3:**
+- `measure.js`'s `PAGES` list currently covers `home` and `movies` only, both authenticated via
+  the wizard-created admin account (no second throwaway non-admin user, unlike the plan's original
+  wording) — a smaller, deliberately-scoped slice matching the two synthetic-media scenarios
+  Layer 2 exercises, not the full `favourites`/`tv` set the original ad-hoc script covered.
+- No `docker-compose.perf.yml`: `run-layer3.sh` orchestrates two plain `podman run` containers
+  directly instead, since they never need to talk to each other — one less templating layer,
+  same disposable/side-by-side behavior the plan asked for.
+- `jellyfin.deps.json` merging (`merge_deps.py`) copies *every* managed DLL our own build
+  produces into the base image (not a name-filtered subset) — confirmed necessary: the base image
+  is self-contained with its own bundled package versions, and overlaying only *some* of our
+  build's deps.json entries onto base's (e.g. just OpenTelemetry-named ones, an earlier version of
+  this script) pointed the merged deps.json at files that were never actually copied in
+  (`Microsoft.EntityFrameworkCore.dll` et al.), producing a `FileNotFoundException` at boot.
+  `jellyfin.runtimeconfig.json` is deliberately never touched — base's is self-contained/pinned,
+  ours is framework-dependent, and the two are not interchangeable.

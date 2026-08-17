@@ -1,0 +1,9 @@
+{
+  "name": "jellyfin-perf-layer3-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Layer 3 (e2e) of the perf-regression harness — see ../README.md",
+  "dependencies": {
+    "playwright": "^1.62.1"
+  }
+}
