@@ -1,0 +1,12 @@
+{
+  "layers": {
+    "layer1": {
+      "enabled": true,
+      "runnerProject": "Layer1.QueryPlan/Runner/Jellyfin.PerfTests.QueryPlan.Runner.csproj"
+    }
+  },
+  "defaultRefs": {
+    "baseline": "upstream/master",
+    "candidate": "HEAD"
+  }
+}

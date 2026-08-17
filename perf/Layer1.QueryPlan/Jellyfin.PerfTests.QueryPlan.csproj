@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Deliberately NOT referenced by Jellyfin.sln and NOT under tests/. CI's only test
+    invocation (.github/workflows/ci-tests.yml: `dotnet test Jellyfin.sln`) cannot discover
+    this project, so it never runs as part of the default PR gate.
+
+    This project is the ad-hoc `dotnet test` / IDE test-explorer entry point (GateFacts.cs).
+    perf/run-perf.sh instead uses Runner/ (a plain console app, same Core/ gates) to produce the
+    standardized JSON output — kept as a separate project so xunit.v3's own generated entry
+    point (this project sets OutputType=Exe, matching the rest of the repo's test projects)
+    doesn't collide with the runner's custom Main.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="Core\Jellyfin.PerfTests.QueryPlan.Core.csproj" />
+  </ItemGroup>
+
+</Project>

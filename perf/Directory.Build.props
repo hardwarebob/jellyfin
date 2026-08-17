@@ -1,0 +1,12 @@
+<Project>
+  <!-- Sets defaults for all perf/ projects. Not under tests/ or src/ deliberately — see
+       perf/README.md — so it needs its own copy of this pattern. -->
+
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+</Project>

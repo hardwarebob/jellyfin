@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Jellyfin perf-regression-harness result",
+  "type": "object",
+  "required": ["schemaVersion", "run", "results"],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "run": {
+      "type": "object",
+      "required": ["ref", "timestamp", "layer"],
+      "properties": {
+        "ref": { "type": "string", "description": "Git ref/branch measured" },
+        "sha": { "type": ["string", "null"] },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "layer": {
+          "type": "string",
+          "enum": ["layer1-queryplan", "layer2-integration", "layer3-e2e"]
+        },
+        "host": {
+          "type": "object",
+          "description": "Informational only. Never used for pass/fail — see perf/README.md."
+        }
+      }
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "description", "kind", "status", "gating"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Stable identifier, used to match this result across two runs when diffing."
+          },
+          "description": { "type": "string" },
+          "kind": {
+            "type": "string",
+            "enum": ["queryplan", "ratio", "operationcount", "timing"],
+            "description": "queryplan/ratio/operationcount are host-independent by construction. timing is not — it must always have gating:false."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pass", "fail", "not_applicable", "error"],
+            "description": "not_applicable means the thing being checked (e.g. a migration-added table) doesn't exist on this ref yet — expected on some refs, not a failure."
+          },
+          "gating": {
+            "type": "boolean",
+            "description": "false = informational only; perf/compare/compare.py --fail-on-regression ignores these."
+          },
+          "metrics": { "type": "object" },
+          "details": { "type": "object" }
+        }
+      }
+    }
+  }
+}
