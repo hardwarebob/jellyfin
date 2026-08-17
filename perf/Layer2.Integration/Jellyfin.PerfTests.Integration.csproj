@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Deliberately NOT referenced by Jellyfin.sln and NOT under tests/. CI's only test
+    invocation (.github/workflows/ci-tests.yml: `dotnet test Jellyfin.sln`) cannot discover
+    this project, so it never runs as part of the default PR gate.
+
+    Run via `dotnet test` (from *this* directory, not elsewhere — see SeededHostFixture.cs for
+    why): the one Fact (GateFacts.RunAllAndWriteResults) runs every scenario and writes the
+    standardized JSON as a side effect. Unlike Layer 1, there's no separate `dotnet run` Runner
+    project here — Microsoft.AspNetCore.Mvc.Testing's WebApplicationFactory<Startup> content-root
+    auto-detection only resolves correctly when launched via the real test host (`dotnet test`),
+    not `dotnet run` from a different project's output directory; confirmed real
+    tests/Jellyfin.Server.Integration.Tests tests already only ever run this way too.
+
+    EnableDefaultCompileItems=false + explicit <Compile Include>: this project's directory has
+    Core/ as an immediate subdirectory, and Core is *also* an xunit.v3 OutputType=Exe project
+    (needed to satisfy a buildTransitive requirement — see Core's own csproj) that generates its
+    own synthetic entry point into its obj/ folder. The default recursive glob would pick those
+    generated files up here too, causing duplicate-type build errors.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="GateFacts.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <!-- WebApplicationFactory<Startup>'s content-root auto-detection reads an attribute the
+         Microsoft.AspNetCore.Mvc.Testing build targets generate onto the *executing* test
+         assembly specifically — having it only on Core (a referenced assembly) isn't enough,
+         it must be directly referenced here too, matching Jellyfin.Server.Integration.Tests. -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="Core\Jellyfin.PerfTests.Integration.Core.csproj" />
+    <ProjectReference Include="..\..\Jellyfin.Server\Jellyfin.Server.csproj" />
+  </ItemGroup>
+
+</Project>

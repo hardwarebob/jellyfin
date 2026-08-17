@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Jellyfin.Server.Integration.Tests transitively references xunit.v3, whose buildTransitive
+         targets require OutputType=Exe on every consumer regardless of PrivateAssets — this
+         project has no [Fact]s/Main of its own, but needs the property set anyway. -->
+    <OutputType>Exe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Microsoft.AspNetCore.Mvc.Testing's WebApplicationFactory<T> resolves its content root
+         from an assembly attribute its build targets generate — but only when the *consuming*
+         project both references this package directly AND directly ProjectReferences the web
+         project. A transitive reference (via Jellyfin.Server.Integration.Tests alone) isn't
+         enough, and WebApplicationFactory falls back to a broken guess at runtime. -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Common\Jellyfin.PerfTests.Common.csproj" />
+    <!-- Reuses JellyfinApplicationFactory/TestAppHost/AuthHelper — the same real-host-boot
+         machinery the repo's own integration tests use, rather than duplicating it.
+         PrivateAssets="all": that project transitively references xunit.v3, whose build targets
+         require any *transitive* consumer to also be OutputType=Exe — this project isn't a test
+         project itself (Runner/ and the sibling xunit-facts csproj are), so suppress that
+         propagation rather than making Core an (empty) test project too. -->
+    <ProjectReference Include="..\..\..\tests\Jellyfin.Server.Integration.Tests\Jellyfin.Server.Integration.Tests.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\..\..\Jellyfin.Server\Jellyfin.Server.csproj" />
+    <ProjectReference Include="..\..\..\src\Jellyfin.Database\Jellyfin.Database.Implementations\Jellyfin.Database.Implementations.csproj" />
+  </ItemGroup>
+
+</Project>

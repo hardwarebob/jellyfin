@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Jellyfin.PerfTests.QueryPlan;
+namespace Jellyfin.PerfTests.Common;
 
 /// <summary>
 /// The kind of measurement backing a <see cref="GateResult"/>. Determines how

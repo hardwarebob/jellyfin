@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 
-namespace Jellyfin.PerfTests.QueryPlan;
+namespace Jellyfin.PerfTests.Common;
 
 /// <summary>Serializes a run's <see cref="GateResult"/> list to the standardized JSON schema.</summary>
 public static class PerfResultWriter
@@ -14,7 +14,7 @@ public static class PerfResultWriter
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 
-    public static void Write(string outputPath, string gitRef, string? sha, List<GateResult> results)
+    public static void Write(string outputPath, string gitRef, string? sha, List<GateResult> results, string layer = "layer1-queryplan")
     {
         var run = new PerfRunResult
         {
@@ -23,7 +23,7 @@ public static class PerfResultWriter
                 Ref = gitRef,
                 Sha = sha,
                 Timestamp = DateTime.UtcNow.ToString("O"),
-                Layer = "layer1-queryplan",
+                Layer = layer,
                 Host = new Dictionary<string, object?>
                 {
                     ["os"] = Environment.OSVersion.Platform.ToString(),

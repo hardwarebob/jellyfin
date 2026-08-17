@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Shared result/JSON-output types used by every layer. No project references — deliberately
+       kept dependency-free so any layer (including a future non-.NET Layer 3) can produce
+       output matching perf/schema/perf-result.schema.json without pulling in the rest of the
+       app. -->
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+</Project>

@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # Single entry point for the perf-regression harness.
 #
+# Currently drives Layer 1 (query-plan gates) only. Layer 2 (Layer2.Integration/) is built but
+# not yet wired in here — it needs `dotnet test` run from its own directory specifically (see
+# Layer2.Integration/Core/SeededHostFixture.cs), a different invocation shape than Layer 1's
+# `dotnet run`, and isn't ref-switchable via git worktree the same way yet. Run it directly:
+#   dotnet test perf/Layer2.Integration -c Release --filter FullyQualifiedName~RunAllAndWriteResults
+#   (PERF_OUT=<path> PERF_GIT_REF=<ref> env vars control output path / recorded ref)
+#
 #   run-perf.sh run  [--ref <git-ref>] [--out <path>]
 #       Runs Layer 1 against the given ref (default: current worktree, uncommitted changes
 #       included) and writes the standardized JSON result to --out (default: results/<ref>.json).

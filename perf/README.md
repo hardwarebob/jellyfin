@@ -32,8 +32,13 @@ host-independent by construction instead:
   database — unlike every other test in this repo, which uses `EnsureCreated()` and so silently
   skips migration-only raw SQL (FTS5 tables/triggers, partial/covering indexes). See
   `Core/PerfDbContextFactory.cs` for why that distinction matters.
-- **Layer 2 — integration** (not yet built). Real host boot via the same pattern as
-  `tests/Jellyfin.Server.Integration.Tests`, seeded dataset, real endpoints.
+- **Layer 2 — integration** (`Layer2.Integration/`, built). Boots a real, fully-migrated host by
+  reusing `JellyfinApplicationFactory`/`AuthHelper` from `tests/Jellyfin.Server.Integration.Tests`
+  directly, seeds deterministic data, and drives real HTTP endpoints. Run via `dotnet test` from
+  `Layer2.Integration/` specifically (not `dotnet run`, and not from elsewhere — see
+  `Core/SeededHostFixture.cs`'s comment on `WebApplicationFactory<Startup>`'s content-root
+  auto-detection, which only resolves correctly launched that way). Currently both scenarios'
+  `Gating` is `false` — see "Known follow-up work".
 - **Layer 3 — e2e** (not yet built). Playwright against real running containers (baseline vs
   candidate, same host), formalizing the mechanics already proven in
   `/applications/deploy/jellyfin-perf/run.js`.
@@ -71,6 +76,7 @@ container instead.
 
 ## Known follow-up work
 
+**Layer 1:**
 - `recent-episodes-ordering-is-index-backed` is `gating: false`. Against the real full schema
   (many more competing indexes than a small synthetic test table), SQLite's planner picks a
   different index for this exact filter shape than the one the migration added, and needs a
@@ -85,3 +91,20 @@ container instead.
   directly, not captured live from the full `BaseItemRepository.TranslateQuery`/`NextUpService`
   call graph — building a full valid domain `User` object for that path was out of scope for
   this first slice.
+
+**Layer 2:**
+- Both scenarios (`search-endpoint-multilanguage`, `resume-endpoint-returns-in-progress-only`)
+  are `gating: false`, with a confirmed (not speculative) diagnosis: `SeededHostFixture.SeedAsync`
+  writes `BaseItemEntity`/`UserData` rows directly with no real `CollectionFolder`/library
+  registration. Those items are fully queryable and correctly deserialized by direct id —
+  `SearchScenario`'s own `byIdsTotalRecordCount` detail confirms `GET /Items?ids={id}` finds them
+  — but `Recursive=true` search and `/Items/Resume` both traverse from registered library/user-view
+  roots, so an item with no real folder ancestry is invisible to them by design. Needs a minimal
+  seeded `CollectionFolder` + library registration to test actual search/resume *matching* logic
+  instead of accidentally testing library-root traversal. Tracked, not mysterious.
+- `WebApplicationFactory<Startup>`'s content-root auto-detection failure (worked around via
+  `WithWebHostBuilder(builder => builder.UseContentRoot(...))` in `SeededHostFixture.cs`) was not
+  root-caused to a specific mechanism — several plausible fixes (matching
+  `Jellyfin.Server.Integration.Tests.csproj`'s exact reference shape, `Environment.CurrentDirectory`)
+  had no effect at all. The `WithWebHostBuilder` workaround is confirmed working (migrations do
+  run — 7s host boot, not a fast no-op) but is a workaround, not an understood root cause.

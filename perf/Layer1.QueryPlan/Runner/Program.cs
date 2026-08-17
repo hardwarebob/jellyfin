@@ -1,4 +1,5 @@
 using System;
+using Jellyfin.PerfTests.Common;
 using System.Collections.Generic;
 using Jellyfin.PerfTests.QueryPlan.Gates;
 

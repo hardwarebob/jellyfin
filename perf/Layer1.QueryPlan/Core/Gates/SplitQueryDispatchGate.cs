@@ -1,4 +1,5 @@
 using System;
+using Jellyfin.PerfTests.Common;
 using System.Collections.Generic;
 using Emby.Server.Implementations.Data;
 using Jellyfin.Database.Implementations;

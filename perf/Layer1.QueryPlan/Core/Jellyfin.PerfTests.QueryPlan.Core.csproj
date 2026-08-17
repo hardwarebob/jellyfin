@@ -10,6 +10,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\Common\Jellyfin.PerfTests.Common.csproj" />
     <ProjectReference Include="..\..\..\Emby.Server.Implementations\Emby.Server.Implementations.csproj" />
     <ProjectReference Include="..\..\..\Jellyfin.Server.Implementations\Jellyfin.Server.Implementations.csproj" />
     <ProjectReference Include="..\..\..\src\Jellyfin.Database\Jellyfin.Database.Implementations\Jellyfin.Database.Implementations.csproj" />
